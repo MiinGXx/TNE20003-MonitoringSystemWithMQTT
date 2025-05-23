@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User 1 Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .value {
+            font-size: 24px;
+            color: #2196F3;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>User 1 Dashboard</h1>
+        
+        <div class="card">
+            <h2>Temperature</h2>
+            <div id="temperature" class="value">--</div>
+        </div>
+
+        <div class="card">
+            <h2>Motion Detection</h2>
+            <div id="motion" class="value">No motion</div>
+        </div>
+
+        <div class="card">
+            <h2>Cooling Commands</h2>
+            <div id="cooling" class="value">--</div>
+        </div>
+    </div>
+
+    <script>
+        var socket = io();
+        
+        socket.on('temperature', function(data) {
+            document.getElementById('temperature').textContent = data.data + '°C';
+        });
+
+        socket.on('motion', function(data) {
+            document.getElementById('motion').textContent = data.data;
+            setTimeout(() => {
+                document.getElementById('motion').textContent = 'No motion';
+            }, 3000);
+        });
+
+        socket.on('cooling_command', function(data) {
+            document.getElementById('cooling').textContent = data.data;
+        });
+    </script>
+</body>
+</html>
