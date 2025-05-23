@@ -241,17 +241,26 @@
             <div class="sidebar">
                 <div class="sidebar-section">
                     <h3>Manual Controls</h3>
-                    <button class="button disabled" id="overrideBtn">
+                    <button
+                        class="button"
+                        id="overrideBtn"
+                        onclick="toggleOverride()"
+                    >
                         <i class="fas fa-shield-alt"></i> Manual Override
                     </button>
-                    <button class="button disabled" id="fanSpeedBtn">
-                        <i class="fas fa-tachometer-alt"></i> Fan Speed Control
+                    <button
+                        class="button"
+                        id="fanSpeedBtn"
+                        onclick="toggleCooling()"
+                        disabled
+                    >
+                        <i class="fas fa-power-off"></i> Toggle Cooling
                     </button>
                 </div>
 
                 <div class="sidebar-section">
                     <h3>System Status</h3>
-                    <p>Future monitoring metrics will appear here</p>
+                    <p id="controlStatus">Automatic Control Active</p>
                 </div>
             </div>
         </div>
@@ -260,6 +269,8 @@
             var socket = io();
             let lastTemp = 0;
             var currentThreshold = 25.0; // Will be updated by threshold_update events
+            var manualOverride = false;
+            var manualCooling = false;
 
             // Function to update temperature display based on current threshold
             function updateTemperatureDisplay(temp) {
@@ -283,6 +294,57 @@
                 } else {
                     tempElement.className = "value";
                 }
+            }
+
+            function toggleOverride() {
+                manualOverride = !manualOverride;
+                const overrideBtn = document.getElementById("overrideBtn");
+                const fanSpeedBtn = document.getElementById("fanSpeedBtn");
+                const statusText = document.getElementById("controlStatus");
+
+                if (manualOverride) {
+                    overrideBtn.style.backgroundColor = "#f44336";
+                    fanSpeedBtn.disabled = false;
+                    statusText.textContent = "Manual Control Active";
+                    overrideBtn.innerHTML =
+                        '<i class="fas fa-shield-alt"></i> Disable Manual Control';
+                } else {
+                    overrideBtn.style.backgroundColor = "";
+                    fanSpeedBtn.disabled = true;
+                    statusText.textContent = "Automatic Control Active";
+                    overrideBtn.innerHTML =
+                        '<i class="fas fa-shield-alt"></i> Manual Override';
+                    manualCooling = false;
+                }
+
+                // Emit the override state
+                socket.emit("manual_override", {
+                    enabled: manualOverride,
+                    cooling: manualCooling,
+                });
+            }
+
+            function toggleCooling() {
+                if (!manualOverride) return;
+
+                manualCooling = !manualCooling;
+                const fanSpeedBtn = document.getElementById("fanSpeedBtn");
+
+                if (manualCooling) {
+                    fanSpeedBtn.style.backgroundColor = "#4CAF50";
+                    fanSpeedBtn.innerHTML =
+                        '<i class="fas fa-power-off"></i> Turn Cooling OFF';
+                } else {
+                    fanSpeedBtn.style.backgroundColor = "";
+                    fanSpeedBtn.innerHTML =
+                        '<i class="fas fa-power-off"></i> Turn Cooling ON';
+                }
+
+                // Emit the new cooling state
+                socket.emit("manual_override", {
+                    enabled: manualOverride,
+                    cooling: manualCooling,
+                });
             }
 
             socket.on("threshold_update", function (data) {
@@ -325,6 +387,40 @@
                 coolingElement.classList.remove("update");
                 void coolingElement.offsetWidth;
                 coolingElement.classList.add("update");
+            });
+
+            socket.on("override_status", function (data) {
+                if (data.manual_override !== manualOverride) {
+                    manualOverride = data.manual_override;
+                    manualCooling = data.manual_cooling;
+                    const overrideBtn = document.getElementById("overrideBtn");
+                    const fanSpeedBtn = document.getElementById("fanSpeedBtn");
+                    const statusText = document.getElementById("controlStatus");
+
+                    if (manualOverride) {
+                        overrideBtn.style.backgroundColor = "#f44336";
+                        fanSpeedBtn.disabled = false;
+                        statusText.textContent = "Manual Control Active";
+                        overrideBtn.innerHTML =
+                            '<i class="fas fa-shield-alt"></i> Disable Manual Control';
+
+                        if (manualCooling) {
+                            fanSpeedBtn.style.backgroundColor = "#4CAF50";
+                            fanSpeedBtn.innerHTML =
+                                '<i class="fas fa-power-off"></i> Turn Cooling OFF';
+                        } else {
+                            fanSpeedBtn.style.backgroundColor = "";
+                            fanSpeedBtn.innerHTML =
+                                '<i class="fas fa-power-off"></i> Turn Cooling ON';
+                        }
+                    } else {
+                        overrideBtn.style.backgroundColor = "";
+                        fanSpeedBtn.disabled = true;
+                        statusText.textContent = "Automatic Control Active";
+                        overrideBtn.innerHTML =
+                            '<i class="fas fa-shield-alt"></i> Manual Override';
+                    }
+                }
             });
 
             socket.on("connect", function () {

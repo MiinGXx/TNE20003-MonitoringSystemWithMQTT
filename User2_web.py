@@ -20,6 +20,9 @@ config_topic = "public/server-room/config"  # Topic for configuration updates
 mqtt_client = None
 mqtt_thread = None
 temp_threshold = 28.0  # Default threshold, will be updated from User1
+manual_override = False  # Manual override state
+manual_cooling = False  # Manual cooling state
+last_temperature = None  # Store the last received temperature
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -28,25 +31,28 @@ def on_connect(client, userdata, flags, rc, properties=None):
     socketio.emit('mqtt_status', {'status': 'connected'})
 
 def on_message(client, userdata, msg):
-    global temp_threshold
+    global temp_threshold, last_temperature
     try:
         if msg.topic == temperature_topic:
             temperature = float(msg.payload.decode())
+            last_temperature = temperature  # Store the temperature
             print(f"Received temperature: {temperature}°C")
             
             # Emit temperature to all connected clients
             socketio.emit('temperature', {'data': temperature})
             
-            # Generate cooling command based on temperature and current threshold
-            if temperature > temp_threshold:
-                cooling_command = "ON"
-            else:
-                cooling_command = "OFF"
-            
-            # Publish cooling command and emit to clients    
-            mqtt_client.publish(cooling_topic, cooling_command)
-            print(f"Generated cooling command: {cooling_command} (current threshold: {temp_threshold}°C)")
-            socketio.emit('cooling_command', {'data': cooling_command})
+            # Only control cooling if manual override is not enabled
+            if not manual_override:
+                # Generate cooling command based on temperature and current threshold
+                if temperature > temp_threshold:
+                    cooling_command = "ON"
+                else:
+                    cooling_command = "OFF"
+                
+                # Publish cooling command and emit to clients    
+                mqtt_client.publish(cooling_topic, cooling_command)
+                print(f"Generated cooling command: {cooling_command} (current threshold: {temp_threshold}°C)")
+                socketio.emit('cooling_command', {'data': cooling_command})
             
         elif msg.topic == config_topic:
             # Handle configuration updates
@@ -122,6 +128,36 @@ def cleanup():
 @app.route('/')
 def index():
     return render_template('user2.html')
+
+@socketio.on('manual_override')
+def handle_manual_override(data):
+    global manual_override, manual_cooling
+    try:
+        manual_override = data['enabled']
+        if manual_override:
+            manual_cooling = data['cooling']
+            # Generate cooling command based on manual setting
+            cooling_command = "ON" if manual_cooling else "OFF"
+            mqtt_client.publish(cooling_topic, cooling_command)
+            print(f"Manual override: Cooling set to {cooling_command}")
+            socketio.emit('cooling_command', {'data': cooling_command})
+        else:
+            manual_cooling = False
+            # Revert to automatic control - check current temperature
+            if mqtt_client and last_temperature is not None:
+                print("Manual override disabled - reverting to automatic control")
+                # Simulate a new temperature message to trigger automatic control
+                on_message(mqtt_client, None, type('obj', (), {
+                    'topic': temperature_topic, 
+                    'payload': str(last_temperature).encode()
+                })())
+        
+        socketio.emit('override_status', {
+            'manual_override': manual_override,
+            'manual_cooling': manual_cooling
+        })
+    except Exception as e:
+        print(f"Error in manual override: {e}")
 
 if __name__ == '__main__':
     try:
