@@ -3,6 +3,7 @@
 <head>
     <title>User 1 Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -10,12 +11,17 @@
             background-color: #f0f0f0;
         }
         .container {
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             background-color: white;
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
         }
         .card {
             border: 1px solid #ddd;
@@ -23,6 +29,9 @@
             margin: 10px 0;
             border-radius: 5px;
             background-color: #fff;
+        }
+        .full-width {
+            grid-column: 1 / -1;
         }
         h1 {
             color: #333;
@@ -33,33 +42,158 @@
             color: #2196F3;
             font-weight: bold;
         }
+        .alert {
+            background-color: #ff4444;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            display: none;
+        }
+        .config-form {
+            display: grid;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-ok {
+            background-color: #4CAF50;
+        }
+        .status-error {
+            background-color: #f44336;
+        }
     </style>
 </head>
-<body>
-    <div class="container">
+<body>    <div class="container">
         <h1>User 1 Dashboard</h1>
         
-        <div class="card">
-            <h2>Temperature</h2>
-            <div id="temperature" class="value">--</div>
-        </div>
+        <div id="alert" class="alert"></div>
 
-        <div class="card">
-            <h2>Motion Detection</h2>
-            <div id="motion" class="value">No motion</div>
-        </div>
+        <div class="grid">
+            <div class="card">
+                <h2>Temperature</h2>
+                <div id="temperature" class="value">--</div>
+            </div>
 
-        <div class="card">
-            <h2>Cooling Commands</h2>
-            <div id="cooling" class="value">--</div>
-        </div>
-    </div>
+            <div class="card">
+                <h2>Motion Detection</h2>
+                <div id="motion" class="value">No motion</div>
+            </div>
 
-    <script>
+            <div class="card">
+                <h2>Cooling Commands</h2>
+                <div id="cooling" class="value">--</div>
+            </div>
+
+            <div class="card">
+                <h2>Configuration</h2>
+                <div class="config-form">
+                    <label>Temperature Threshold (°C):
+                        <input type="number" id="tempThreshold" step="0.1" />
+                    </label>
+                    <label>
+                        <input type="checkbox" id="alertEnabled" />
+                        Enable Alerts
+                    </label>
+                    <button onclick="saveConfig()">Save Configuration</button>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <h2>System Status</h2>
+                <div class="status-grid">
+                    <div>
+                        <span class="status-indicator" id="mqttStatus"></span>
+                        MQTT Connection
+                    </div>
+                    <div>
+                        <span class="status-indicator" id="dataLogStatus"></span>
+                        Data Logging
+                    </div>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <h2>Temperature History</h2>
+                <canvas id="tempChart"></canvas>
+            </div>
+        </div>
+    </div>    <script>
         var socket = io();
-        
+        let tempChart;
+        let tempData = {
+            labels: [],
+            datasets: [{
+                label: 'Temperature °C',
+                data: [],
+                borderColor: '#2196F3',
+                tension: 0.1
+            }]
+        };
+
+        // Initialize chart
+        window.onload = function() {
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            tempChart = new Chart(ctx, {
+                type: 'line',
+                data: tempData,
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    animation: false
+                }
+            });
+
+            // Load initial configuration
+            fetch('/config')
+                .then(response => response.json())
+                .then(config => {
+                    document.getElementById('tempThreshold').value = config.temp_threshold;
+                    document.getElementById('alertEnabled').checked = config.alert_enabled;
+                });
+        };
+
+        function saveConfig() {
+            const config = {
+                temp_threshold: parseFloat(document.getElementById('tempThreshold').value),
+                alert_enabled: document.getElementById('alertEnabled').checked
+            };
+
+            fetch('/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            });
+        }
+
+        function updateChart(temperature) {
+            const now = new Date().toLocaleTimeString();
+            tempData.labels.push(now);
+            tempData.datasets[0].data.push(temperature);
+
+            // Keep only last 20 readings
+            if (tempData.labels.length > 20) {
+                tempData.labels.shift();
+                tempData.datasets[0].data.shift();
+            }
+
+            tempChart.update();
+        }
+
         socket.on('temperature', function(data) {
             document.getElementById('temperature').textContent = data.data + '°C';
+            updateChart(data.data);
         });
 
         socket.on('motion', function(data) {
@@ -72,6 +206,36 @@
         socket.on('cooling_command', function(data) {
             document.getElementById('cooling').textContent = data.data;
         });
+
+        socket.on('alert', function(data) {
+            const alertDiv = document.getElementById('alert');
+            alertDiv.textContent = data.data;
+            alertDiv.style.display = 'block';
+            setTimeout(() => {
+                alertDiv.style.display = 'none';
+            }, 5000);
+        });
+
+        // Update system status indicators
+        socket.on('connect', function() {
+            document.getElementById('mqttStatus').className = 'status-indicator status-ok';
+        });
+
+        socket.on('disconnect', function() {
+            document.getElementById('mqttStatus').className = 'status-indicator status-error';
+        });
+
+        // Fetch historical data every minute
+        setInterval(function() {
+            fetch('/historical-data')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('dataLogStatus').className = 'status-indicator status-ok';
+                })
+                .catch(() => {
+                    document.getElementById('dataLogStatus').className = 'status-indicator status-error';
+                });
+        }, 60000);
     </script>
 </body>
 </html>
