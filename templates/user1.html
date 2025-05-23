@@ -17,6 +17,7 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
         }
         .grid {
             display: grid;
@@ -68,10 +69,40 @@
         .status-error {
             background-color: #f44336;
         }
+        .motion-log {
+            height: 200px;
+            overflow-y: auto;
+            text-align: left;
+            padding: 10px;
+            background-color: #f5f5f5;
+            font-family: monospace;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .log-time {
+            color: #666;
+            margin-right: 10px;
+        }
     </style>
 </head>
-<body>    <div class="container">
+<body>
+    <div class="container">
         <h1>User 1 Dashboard</h1>
+
+        <div class="card full-width">
+            <h2>System Status</h2>
+            <div class="status-grid">
+                <div>
+                    <span class="status-indicator" id="mqttStatus"></span>
+                    MQTT Connection
+                </div>
+            </div>
+        </div>
         
         <div id="alert" class="alert"></div>
 
@@ -105,17 +136,20 @@
                 </div>
             </div>
 
-            <div class="card full-width">
-                <h2>System Status</h2>
-                <div class="status-grid">
-                    <div>
-                        <span class="status-indicator" id="mqttStatus"></span>
-                        MQTT Connection
-                    </div>
-                    <div>
-                        <span class="status-indicator" id="dataLogStatus"></span>
-                        Data Logging
-                    </div>
+            <div class="card">
+                <h2>Alarm Configuration</h2>
+                <div class="config-form">
+                    <label>Start Time (24h format):
+                        <input type="time" id="alarmStart" value="18:00">
+                    </label>
+                    <label>End Time (24h format):
+                        <input type="time" id="alarmEnd" value="09:00">
+                    </label>
+                    <label>
+                        <input type="checkbox" id="alarmEnabled" checked>
+                        Enable Alarm
+                    </label>
+                    <button onclick="saveAlarmConfig()">Save Alarm Settings</button>
                 </div>
             </div>
 
@@ -123,8 +157,15 @@
                 <h2>Temperature History</h2>
                 <canvas id="tempChart"></canvas>
             </div>
+
+            <div class="card full-width">
+                <h2>Motion Detection Log</h2>
+                <div id="motionLog" class="motion-log"></div>
+            </div>
         </div>
-    </div>    <script>
+    </div>    
+    
+    <script>
         var socket = io();
         let tempChart;
         let tempData = {
@@ -160,6 +201,15 @@
                     document.getElementById('tempThreshold').value = config.temp_threshold;
                     document.getElementById('alertEnabled').checked = config.alert_enabled;
                 });
+
+            // Load initial alarm configuration
+            fetch('/alarm-config')
+                .then(response => response.json())
+                .then(config => {
+                    document.getElementById('alarmStart').value = config.alarm_start;
+                    document.getElementById('alarmEnd').value = config.alarm_end;
+                    document.getElementById('alarmEnabled').checked = config.alarm_enabled;
+                });
         };
 
         function saveConfig() {
@@ -177,18 +227,46 @@
             });
         }
 
+        function saveAlarmConfig() {
+            const config = {
+                alarm_start: document.getElementById('alarmStart').value,
+                alarm_end: document.getElementById('alarmEnd').value,
+                alarm_enabled: document.getElementById('alarmEnabled').checked
+            };
+
+            fetch('/alarm-config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            });
+        }
+
         function updateChart(temperature) {
             const now = new Date().toLocaleTimeString();
             tempData.labels.push(now);
-            tempData.datasets[0].data.push(temperature);
-
-            // Keep only last 20 readings
-            if (tempData.labels.length > 20) {
+            tempData.datasets[0].data.push(temperature);            // Keep only last 30 readings
+            if (tempData.labels.length > 30) {
                 tempData.labels.shift();
                 tempData.datasets[0].data.shift();
             }
 
             tempChart.update();
+        }
+
+        function addMotionLogEntry(motion) {
+            const motionLog = document.getElementById('motionLog');
+            const now = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">[${now}]</span> ${motion}`;
+            motionLog.insertBefore(entry, motionLog.firstChild);
+            
+            // Keep only last 50 entries
+            while (motionLog.children.length > 50) {
+                motionLog.removeChild(motionLog.lastChild);
+            }
         }
 
         socket.on('temperature', function(data) {
@@ -198,6 +276,7 @@
 
         socket.on('motion', function(data) {
             document.getElementById('motion').textContent = data.data;
+            addMotionLogEntry(data.data);
             setTimeout(() => {
                 document.getElementById('motion').textContent = 'No motion';
             }, 3000);

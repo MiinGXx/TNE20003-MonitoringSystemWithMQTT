@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import random
+from datetime import datetime, time as dt_time
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -12,9 +13,11 @@ socketio = SocketIO(app)
 # Global configuration
 config = {
     'temp_threshold': 28.0,  # Default temperature threshold
-    'alert_enabled': True
+    'alert_enabled': True,
+    'alarm_start': '18:00',
+    'alarm_end': '09:00',
+    'alarm_enabled': True
 }
-
 
 # MQTT Settings
 broker = "192.168.12.100"
@@ -22,6 +25,17 @@ port = 1883
 motion_topic = "102779797/server-room/motion"  # Private channel for motion
 temperature_topic = "public/server-room/temp"  # Public channel for temperature
 cooling_topic = "public/server-room/cooling"  # Subscribe to cooling commands
+
+# Time configuration
+def is_time_between(current_time, start_time_str, end_time_str):
+    start_time = dt_time.fromisoformat(start_time_str)
+    end_time = dt_time.fromisoformat(end_time_str)
+    current = dt_time.fromisoformat(current_time.strftime('%H:%M:%S'))
+    
+    if start_time <= end_time:
+        return start_time <= current <= end_time
+    else:  # Handles overnight periods
+        return current >= start_time or current <= end_time
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc):
@@ -43,8 +57,6 @@ def on_message(client, userdata, msg):
         if msg.topic == cooling_topic:
             message = msg.payload.decode()
             socketio.emit('cooling_command', {'data': message})
-            # Log cooling command
-            logger.log_data(None, None, message)
     except Exception as e:
         print(f"Error processing message: {e}")
 
@@ -70,6 +82,8 @@ mqtt_thread.start()
 def generate_and_publish():
     while True:
         try:
+            current_time = datetime.now()
+            
             # Generate temperature data
             temperature = round(random.uniform(20, 30), 2)
             mqtt_client.publish(temperature_topic, f"{temperature}")
@@ -83,11 +97,15 @@ def generate_and_publish():
             # Generate motion detection
             motion = random.choice([True, False])
             if motion:
-                mqtt_client.publish(motion_topic, "Motion detected!")
-                socketio.emit('motion', {'data': "Motion detected!"})
-            
-            # Log data
-            logger.log_data(temperature, motion, None)
+                motion_message = "Motion detected!"
+                # Check if within alarm time frame
+                if (config['alarm_enabled'] and 
+                    is_time_between(current_time, config['alarm_start'], config['alarm_end'])):
+                    motion_message += " [ALARM HOURS - Alert triggered!]"
+                    socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
+                
+                mqtt_client.publish(motion_topic, motion_message)
+                socketio.emit('motion', {'data': motion_message})
             
         except Exception as e:
             print(f"Error in generate_and_publish: {e}")
@@ -115,10 +133,22 @@ def update_config():
         return jsonify({'status': 'success'})
     return jsonify(config)
 
-@app.route('/historical-data')
-def get_historical_data():
-    data = logger.get_recent_data(50)  # Get last 50 records
-    return jsonify(data)
+@app.route('/alarm-config', methods=['GET', 'POST'])
+def alarm_config():
+    if request.method == 'POST':
+        data = request.get_json()
+        if 'alarm_start' in data:
+            config['alarm_start'] = data['alarm_start']
+        if 'alarm_end' in data:
+            config['alarm_end'] = data['alarm_end']
+        if 'alarm_enabled' in data:
+            config['alarm_enabled'] = bool(data['alarm_enabled'])
+        return jsonify({'status': 'success'})
+    return jsonify({
+        'alarm_start': config['alarm_start'],
+        'alarm_end': config['alarm_end'],
+        'alarm_enabled': config['alarm_enabled']
+    })
 
 if __name__ == '__main__':
     try:
