@@ -6,6 +6,7 @@ import threading
 import time
 import random
 from datetime import datetime, time as dt_time
+from utils.encryption import EncryptionManager
 
 # Global variables
 app = Flask(__name__)
@@ -13,6 +14,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")  # Allow all origins for deve
 mqtt_client = None
 publish_thread = None
 mqtt_thread = None
+encryption_manager = EncryptionManager()
 
 # Global configuration
 config = {
@@ -61,16 +63,16 @@ def on_disconnect(client, userdata, rc):
 def on_message(client, userdata, msg):
     try:
         if msg.topic == cooling_topic:
-            message = msg.payload.decode()
-            socketio.emit('cooling_command', {'data': message})
+            decrypted_message = encryption_manager.decrypt(msg.payload)
+            socketio.emit('cooling_command', {'data': decrypted_message})
         elif msg.topic == temperature_topic:
-            temperature = float(msg.payload.decode())
+            temperature = float(encryption_manager.decrypt(msg.payload))
             socketio.emit('temperature', {'data': temperature})
         elif msg.topic == motion_topic:
-            motion_message = msg.payload.decode()
+            motion_message = encryption_manager.decrypt(msg.payload)
             socketio.emit('motion', {'data': motion_message})
         elif msg.topic == config_topic:
-            config_updates = json.loads(msg.payload.decode())
+            config_updates = json.loads(encryption_manager.decrypt(msg.payload))
             for key, value in config_updates.items():
                 if key in config:
                     config[key] = value
@@ -151,10 +153,12 @@ def generate_and_publish():
             
             # Publish to MQTT
             if mqtt_client:
-                # Publish temperature
-                mqtt_client.publish(temperature_topic, f"{temperature}")
+                # Encrypt and publish temperature
+                temp_msg = f"{temperature}"
+                encrypted_temp = encryption_manager.encrypt(temp_msg)
+                mqtt_client.publish(temperature_topic, encrypted_temp)
                 socketio.emit('temperature', {'data': temperature})
-                print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published temperature: {temperature}°C")
+                print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published temperature: {temp_msg}°C")
                 
                 # Generate motion detection
                 motion = random.choice([True, False])
@@ -166,8 +170,9 @@ def generate_and_publish():
                         motion_message += " [ALARM HOURS - Alert triggered!]"
                         socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
                     
-                    # Publish motion message to MQTT
-                    mqtt_client.publish(motion_topic, motion_message)
+                    # Encrypt and publish motion message
+                    encrypted_motion = encryption_manager.encrypt(motion_message)
+                    mqtt_client.publish(motion_topic, encrypted_motion)
                     socketio.emit('motion', {'data': motion_message})
                     print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {motion_message}")
             
@@ -188,9 +193,10 @@ def update_config():
         data = request.get_json()
         if 'temp_threshold' in data:
             config['temp_threshold'] = float(data['temp_threshold'])
-            # Publish the new threshold to MQTT
+            # Encrypt and publish the new threshold to MQTT
             if mqtt_client:
-                mqtt_client.publish(config_topic, json.dumps({'temp_threshold': config['temp_threshold']}))
+                encrypted_config = encryption_manager.encrypt(json.dumps({'temp_threshold': config['temp_threshold']}))
+                mqtt_client.publish(config_topic, encrypted_config)
         if 'alert_enabled' in data:
             config['alert_enabled'] = bool(data['alert_enabled'])
         return jsonify({'status': 'success'})

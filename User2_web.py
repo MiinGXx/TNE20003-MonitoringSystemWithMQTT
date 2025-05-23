@@ -3,7 +3,7 @@ from flask_socketio import SocketIO
 import paho.mqtt.client as mqtt
 import json
 import threading
-import time
+from utils.encryption import EncryptionManager
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")  # Allow all origins
@@ -23,6 +23,7 @@ temp_threshold = 28.0  # Default threshold, will be updated from User1
 manual_override = False  # Manual override state
 manual_cooling = False  # Manual cooling state
 last_temperature = None  # Store the last received temperature
+encryption_manager = EncryptionManager()
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -34,8 +35,10 @@ def on_message(client, userdata, msg):
     global temp_threshold, last_temperature
     try:
         if msg.topic == temperature_topic:
-            temperature = float(msg.payload.decode())
-            last_temperature = temperature  # Store the temperature
+            # Decrypt temperature message
+            decrypted_temp = encryption_manager.decrypt(msg.payload)
+            temperature = float(decrypted_temp)
+            last_temperature = temperature
             print(f"Received temperature: {temperature}°C")
             
             # Emit temperature to all connected clients
@@ -49,19 +52,20 @@ def on_message(client, userdata, msg):
                 else:
                     cooling_command = "OFF"
                 
-                # Publish cooling command and emit to clients    
-                mqtt_client.publish(cooling_topic, cooling_command)
+                # Encrypt and publish cooling command    
+                encrypted_command = encryption_manager.encrypt(cooling_command)
+                mqtt_client.publish(cooling_topic, encrypted_command)
                 print(f"Generated cooling command: {cooling_command} (current threshold: {temp_threshold}°C)")
                 socketio.emit('cooling_command', {'data': cooling_command})
             
         elif msg.topic == config_topic:
-            # Handle configuration updates
-            config_data = json.loads(msg.payload.decode())
+            # Decrypt and handle configuration updates
+            decrypted_config = encryption_manager.decrypt(msg.payload)
+            config_data = json.loads(decrypted_config)
             if 'temp_threshold' in config_data:
                 old_threshold = temp_threshold
                 temp_threshold = float(config_data['temp_threshold'])
                 print(f"Temperature threshold updated: {old_threshold}°C -> {temp_threshold}°C")
-                # Emit the new threshold to clients
                 socketio.emit('threshold_update', {'threshold': temp_threshold})
                 print(f"Emitted threshold update to connected clients")
 
@@ -131,26 +135,27 @@ def index():
 
 @socketio.on('manual_override')
 def handle_manual_override(data):
-    global manual_override, manual_cooling
+    global manual_override, manual_cooling, last_temperature
     try:
         manual_override = data['enabled']
         if manual_override:
-            manual_cooling = data['cooling']
-            # Generate cooling command based on manual setting
+            manual_cooling = data.get('cooling', False)
             cooling_command = "ON" if manual_cooling else "OFF"
-            mqtt_client.publish(cooling_topic, cooling_command)
+            # Encrypt and publish cooling command
+            encrypted_command = encryption_manager.encrypt(cooling_command)
+            mqtt_client.publish(cooling_topic, encrypted_command)
             print(f"Manual override: Cooling set to {cooling_command}")
-            socketio.emit('cooling_command', {'data': cooling_command})
         else:
-            manual_cooling = False
-            # Revert to automatic control - check current temperature
-            if mqtt_client and last_temperature is not None:
-                print("Manual override disabled - reverting to automatic control")
-                # Simulate a new temperature message to trigger automatic control
-                on_message(mqtt_client, None, type('obj', (), {
-                    'topic': temperature_topic, 
-                    'payload': str(last_temperature).encode()
-                })())
+            # Return to automatic control based on last temperature
+            if last_temperature is not None:
+                if last_temperature > temp_threshold:
+                    cooling_command = "ON"
+                else:
+                    cooling_command = "OFF"
+                # Encrypt and publish cooling command
+                encrypted_command = encryption_manager.encrypt(cooling_command)
+                mqtt_client.publish(cooling_topic, encrypted_command)
+                print(f"Manual override disabled: Returning to automatic control")
         
         socketio.emit('override_status', {
             'manual_override': manual_override,
