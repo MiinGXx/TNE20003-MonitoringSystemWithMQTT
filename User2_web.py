@@ -6,53 +6,131 @@ import threading
 import time
 
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")  # Allow all origins
 
 # MQTT Settings
-broker = "192.168.12.100"
+primary_broker = "192.168.12.100"
+fallback_broker = "localhost"
 port = 1883
 temperature_topic = "public/server-room/temp"  # Public channel for temperature
 cooling_topic = "public/server-room/cooling"  # Subscribe to cooling commands
+config_topic = "public/server-room/config"  # Topic for configuration updates
+
+# Global variables
+mqtt_client = None
+mqtt_thread = None
+temp_threshold = 28.0  # Default threshold, will be updated from User1
 
 # MQTT callbacks
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc, properties=None):
     print(f"Connected with result code {rc}")
-    client.subscribe(temperature_topic)
+    client.subscribe([(temperature_topic, 0), (config_topic, 0)])
+    socketio.emit('mqtt_status', {'status': 'connected'})
 
 def on_message(client, userdata, msg):
-    if msg.topic == temperature_topic:
-        try:
+    global temp_threshold
+    try:
+        if msg.topic == temperature_topic:
             temperature = float(msg.payload.decode())
             print(f"Received temperature: {temperature}°C")
+            
+            # Emit temperature to all connected clients
             socketio.emit('temperature', {'data': temperature})
             
-            # Generate cooling command based on temperature
-            if temperature > 25:
-                cooling_command = "Activate cooling"
+            # Generate cooling command based on temperature and current threshold
+            if temperature > temp_threshold:
+                cooling_command = "ON"
             else:
-                cooling_command = "Deactivate cooling"
-                
+                cooling_command = "OFF"
+            
+            # Publish cooling command and emit to clients    
             mqtt_client.publish(cooling_topic, cooling_command)
-            print(f"Generated cooling command: {cooling_command}")
+            print(f"Generated cooling command: {cooling_command} (current threshold: {temp_threshold}°C)")
             socketio.emit('cooling_command', {'data': cooling_command})
-        except ValueError as e:
-            print(f"Error processing temperature: {e}")
+            
+        elif msg.topic == config_topic:
+            # Handle configuration updates
+            config_data = json.loads(msg.payload.decode())
+            if 'temp_threshold' in config_data:
+                old_threshold = temp_threshold
+                temp_threshold = float(config_data['temp_threshold'])
+                print(f"Temperature threshold updated: {old_threshold}°C -> {temp_threshold}°C")
+                # Emit the new threshold to clients
+                socketio.emit('threshold_update', {'threshold': temp_threshold})
+                print(f"Emitted threshold update to connected clients")
+
+    except ValueError as e:
+        print(f"Error processing message: {e}")
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON message: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
 
 # MQTT client setup
-mqtt_client = mqtt.Client()
-mqtt_client.username_pw_set("102779797", "102779797")
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
-mqtt_client.connect(broker, port, 60)
+def connect_mqtt():
+    print("Setting up MQTT client...")
+    mqtt_client = mqtt.Client(protocol=mqtt.MQTTv5)  # Use MQTT v5 protocol
+    
+    # Try primary broker first
+    try:
+        print(f"Attempting to connect to primary broker at {primary_broker}:{port}")
+        mqtt_client.username_pw_set("102779797", "102779797")
+        mqtt_client.on_connect = on_connect
+        mqtt_client.on_message = on_message
+        mqtt_client.connect(primary_broker, port, 60)
+        return mqtt_client
+    except Exception as e:
+        print(f"Failed to connect to primary broker: {e}")
+        
+        # Try fallback broker
+        try:
+            print(f"Attempting to connect to fallback broker at {fallback_broker}:{port}")
+            mqtt_client = mqtt.Client(protocol=mqtt.MQTTv5)  # Create new client instance with MQTT v5
+            mqtt_client.on_connect = on_connect
+            mqtt_client.on_message = on_message
+            mqtt_client.connect(fallback_broker, port, 60)
+            return mqtt_client
+        except Exception as e:
+            print(f"Failed to connect to fallback broker: {e}")
+            raise
 
-# Start MQTT loop in a separate thread
-mqtt_thread = threading.Thread(target=mqtt_client.loop_forever)
-mqtt_thread.daemon = True
-mqtt_thread.start()
+def init_mqtt():
+    global mqtt_client, mqtt_thread
+    
+    if mqtt_client is not None:
+        return  # Already initialized
+        
+    try:
+        mqtt_client = connect_mqtt()
+        
+        # Start MQTT loop in a separate thread
+        mqtt_thread = threading.Thread(target=mqtt_client.loop_forever)
+        mqtt_thread.daemon = True
+        mqtt_thread.start()
+        
+    except Exception as e:
+        print(f"Error initializing MQTT: {e}")
+        mqtt_client = None
+
+def cleanup():
+    global mqtt_client, mqtt_thread
+    if mqtt_client:
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+        mqtt_client = None
 
 @app.route('/')
 def index():
     return render_template('user2.html')
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, port=5001)
+    try:
+        print("Initializing MQTT...")
+        init_mqtt()
+        print("Starting Flask-SocketIO server...")
+        socketio.run(app, debug=False, port=5001, host='0.0.0.0')  # Set debug=False to prevent reloading
+    except Exception as e:
+        print(f"Error starting server: {e}")
+    finally:
+        print("Cleaning up...")
+        cleanup()

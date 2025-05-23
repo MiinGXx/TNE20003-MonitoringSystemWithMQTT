@@ -7,8 +7,12 @@ import time
 import random
 from datetime import datetime, time as dt_time
 
+# Global variables
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")  # Allow all origins for development
+mqtt_client = None
+publish_thread = None
+mqtt_thread = None
 
 # Global configuration
 config = {
@@ -20,11 +24,13 @@ config = {
 }
 
 # MQTT Settings
-broker = "192.168.12.100"
+primary_broker = "192.168.12.100"
+fallback_broker = "localhost"
 port = 1883
 motion_topic = "102779797/server-room/motion"  # Private channel for motion
 temperature_topic = "public/server-room/temp"  # Public channel for temperature
 cooling_topic = "public/server-room/cooling"  # Subscribe to cooling commands
+config_topic = "public/server-room/config"  # Topic for configuration updates
 
 # Time configuration
 def is_time_between(current_time, start_time_str, end_time_str):
@@ -42,7 +48,7 @@ def on_connect(client, userdata, flags, rc):
     print(f"Connected with result code {rc}")
     if rc == 0:
         print("Successfully connected to MQTT broker")
-        client.subscribe(cooling_topic)
+        client.subscribe([(cooling_topic, 0), (temperature_topic, 0), (motion_topic, 0)])
         socketio.emit('mqtt_status', {'status': 'connected'})
     else:
         print(f"Failed to connect to MQTT broker with code {rc}")
@@ -57,27 +63,83 @@ def on_message(client, userdata, msg):
         if msg.topic == cooling_topic:
             message = msg.payload.decode()
             socketio.emit('cooling_command', {'data': message})
+        elif msg.topic == temperature_topic:
+            temperature = float(msg.payload.decode())
+            socketio.emit('temperature', {'data': temperature})
+        elif msg.topic == motion_topic:
+            motion_message = msg.payload.decode()
+            socketio.emit('motion', {'data': motion_message})
+        elif msg.topic == config_topic:
+            config_updates = json.loads(msg.payload.decode())
+            for key, value in config_updates.items():
+                if key in config:
+                    config[key] = value
+            socketio.emit('config_update', {'data': config})
     except Exception as e:
         print(f"Error processing message: {e}")
 
 # MQTT client setup
-try:
+def connect_mqtt():
     print("Setting up MQTT client...")
     mqtt_client = mqtt.Client()
-    mqtt_client.username_pw_set("102779797", "102779797")
-    mqtt_client.on_connect = on_connect
-    mqtt_client.on_disconnect = on_disconnect
-    mqtt_client.on_message = on_message
     
-    print(f"Attempting to connect to broker at {broker}:{port}")
-    mqtt_client.connect(broker, port, 60)
-except Exception as e:
-    print(f"Error setting up MQTT client: {e}")
+    # Try primary broker first
+    try:
+        print(f"Attempting to connect to primary broker at {primary_broker}:{port}")
+        mqtt_client.username_pw_set("102779797", "102779797")
+        mqtt_client.on_connect = on_connect
+        mqtt_client.on_disconnect = on_disconnect
+        mqtt_client.on_message = on_message
+        mqtt_client.connect(primary_broker, port, 60)
+        return mqtt_client
+    except Exception as e:
+        print(f"Failed to connect to primary broker: {e}")
+        
+        # Try fallback broker
+        try:
+            print(f"Attempting to connect to fallback broker at {fallback_broker}:{port}")
+            mqtt_client = mqtt.Client()  # Create new client instance
+            mqtt_client.on_connect = on_connect
+            mqtt_client.on_disconnect = on_disconnect
+            mqtt_client.on_message = on_message
+            mqtt_client.connect(fallback_broker, port, 60)
+            return mqtt_client
+        except Exception as e:
+            print(f"Failed to connect to fallback broker: {e}")
+            raise
 
-# Start MQTT loop in a separate thread
-mqtt_thread = threading.Thread(target=mqtt_client.loop_forever)
-mqtt_thread.daemon = True
-mqtt_thread.start()
+# MQTT initialization
+def init_mqtt():
+    global mqtt_client, mqtt_thread, publish_thread
+    
+    if mqtt_client is not None:
+        return  # Already initialized
+        
+    try:
+        mqtt_client = connect_mqtt()
+        
+        # Start MQTT loop in a separate thread
+        mqtt_thread = threading.Thread(target=mqtt_client.loop_forever)
+        mqtt_thread.daemon = True
+        mqtt_thread.start()
+
+        # Start publishing in a separate thread
+        publish_thread = threading.Thread(target=generate_and_publish)
+        publish_thread.daemon = True
+        publish_thread.start()
+        
+    except Exception as e:
+        print(f"Error initializing MQTT: {e}")
+        mqtt_client = None
+
+def cleanup():
+    global mqtt_client, mqtt_thread, publish_thread
+    if mqtt_client:
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+        mqtt_client = None
+    
+    # The threads are daemon threads, so they will be terminated automatically
 
 def generate_and_publish():
     while True:
@@ -86,37 +148,35 @@ def generate_and_publish():
             
             # Generate temperature data
             temperature = round(random.uniform(20, 30), 2)
-            mqtt_client.publish(temperature_topic, f"{temperature}")
-            socketio.emit('temperature', {'data': temperature})
             
-            # Check temperature threshold
-            if temperature > config['temp_threshold'] and config['alert_enabled']:
-                alert_message = f"High temperature alert: {temperature}°C"
-                socketio.emit('alert', {'data': alert_message})
-
-            # Generate motion detection
-            motion = random.choice([True, False])
-            if motion:
-                motion_message = "Motion detected!"
-                # Check if within alarm time frame
-                if (config['alarm_enabled'] and 
-                    is_time_between(current_time, config['alarm_start'], config['alarm_end'])):
-                    motion_message += " [ALARM HOURS - Alert triggered!]"
-                    socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
+            # Publish to MQTT
+            if mqtt_client:
+                # Publish temperature
+                mqtt_client.publish(temperature_topic, f"{temperature}")
+                socketio.emit('temperature', {'data': temperature})
+                print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published temperature: {temperature}°C")
                 
-                mqtt_client.publish(motion_topic, motion_message)
-                socketio.emit('motion', {'data': motion_message})
+                # Generate motion detection
+                motion = random.choice([True, False])
+                if motion:
+                    motion_message = "Motion detected!"
+                    # Check if within alarm time frame
+                    if (config['alarm_enabled'] and 
+                        is_time_between(current_time, config['alarm_start'], config['alarm_end'])):
+                        motion_message += " [ALARM HOURS - Alert triggered!]"
+                        socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
+                    
+                    # Publish motion message to MQTT
+                    mqtt_client.publish(motion_topic, motion_message)
+                    socketio.emit('motion', {'data': motion_message})
+                    print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {motion_message}")
             
         except Exception as e:
             print(f"Error in generate_and_publish: {e}")
             socketio.emit('mqtt_status', {'status': 'error'})
         
-        time.sleep(10)
-
-# Start publishing in a separate thread
-publish_thread = threading.Thread(target=generate_and_publish)
-publish_thread.daemon = True
-publish_thread.start()
+        # Sleep for exactly 5 seconds between iterations
+        time.sleep(5)
 
 @app.route('/')
 def index():
@@ -128,6 +188,9 @@ def update_config():
         data = request.get_json()
         if 'temp_threshold' in data:
             config['temp_threshold'] = float(data['temp_threshold'])
+            # Publish the new threshold to MQTT
+            if mqtt_client:
+                mqtt_client.publish(config_topic, json.dumps({'temp_threshold': config['temp_threshold']}))
         if 'alert_enabled' in data:
             config['alert_enabled'] = bool(data['alert_enabled'])
         return jsonify({'status': 'success'})
@@ -152,11 +215,12 @@ def alarm_config():
 
 if __name__ == '__main__':
     try:
+        print("Initializing MQTT...")
+        init_mqtt()
         print("Starting Flask-SocketIO server...")
-        socketio.run(app, debug=True, port=5000, host='0.0.0.0')
+        socketio.run(app, debug=False, port=5000, host='0.0.0.0')
     except Exception as e:
         print(f"Error starting server: {e}")
     finally:
         print("Cleaning up...")
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
+        cleanup()
