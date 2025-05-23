@@ -7,13 +7,16 @@ from tkinter import ttk, scrolledtext
 import paho.mqtt.client as mqtt
 
 # MQTT Setup
-MQTT_BROKER = "localhost"
-TEMP_TOPIC = "local/server/temp"
-MOTION_TOPIC = "local/server/motion"
-COOLING_CONTROL_TOPIC = "local/server/cooling"
-ALARM_CONTROL_TOPIC = "local/server/alarm"
+MQTT_BROKER = "192.168.12.100"
+TEMP_TOPIC = "public/server-room/temp"
+MOTION_TOPIC = "public/server-room/motion"
+COOLING_CONTROL_TOPIC = "public/server-room/cooling"
+ALARM_CONTROL_TOPIC = "public/server-room/alarm"
 
+# MQTT Client Setup
+# Replace 'yourStudentID' with your actual student ID
 client = mqtt.Client()
+client.username_pw_set("102779797", "102779797")
 
 # Simulated sensor data
 def generate_temperature():
