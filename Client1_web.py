@@ -167,15 +167,14 @@ def generate_and_publish():
                     # Check if within alarm time frame
                     if (config['alarm_enabled'] and 
                         is_time_between(current_time, config['alarm_start'], config['alarm_end'])):
+                        motion_message += " [ALARM HOURS - Alert triggered!]"
                         socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
-                        print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {motion_message} [ALARM HOURS - Alert triggered!]")
-                    else:
-                        print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {motion_message}")
                     
                     # Encrypt and publish motion message
                     encrypted_motion = encryption_manager.encrypt(motion_message)
                     mqtt_client.publish(motion_topic, encrypted_motion)
                     socketio.emit('motion', {'data': motion_message})
+                    print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {motion_message}")
             
         except Exception as e:
             print(f"Error in generate_and_publish: {e}")
@@ -196,12 +195,8 @@ def update_config():
             config['temp_threshold'] = float(data['temp_threshold'])
             # Encrypt and publish the new threshold to MQTT
             if mqtt_client:
-                config_data = {'temp_threshold': config['temp_threshold']}
-                encrypted_config = encryption_manager.encrypt(json.dumps(config_data))
+                encrypted_config = encryption_manager.encrypt(json.dumps({'temp_threshold': config['temp_threshold']}))
                 mqtt_client.publish(config_topic, encrypted_config)
-                # Emit local config update
-                socketio.emit('config_update', {'data': config_data})
-                print(f"Temperature threshold updated to: {config['temp_threshold']}°C")
         if 'alert_enabled' in data:
             config['alert_enabled'] = bool(data['alert_enabled'])
         return jsonify({'status': 'success'})

@@ -356,7 +356,6 @@
         <script>
             var socket = io();
             let tempChart;
-            let currentThreshold = 28.0; // Default threshold, will be updated by config_update events
 
             // Initialize chart with gradient
             window.onload = function () {
@@ -447,6 +446,7 @@
                     toast.style.display = "none";
                 }, 3000);
             }
+
             function saveConfig() {
                 const config = {
                     temp_threshold: parseFloat(
@@ -462,9 +462,7 @@
                         "Content-Type": "application/json",
                     },
                     body: JSON.stringify(config),
-                }).then(() => {
-                    showToast("Configuration saved successfully!");
-                });
+                }).then(() => showToast("Configuration saved successfully!"));
             }
 
             function saveAlarmConfig() {
@@ -515,50 +513,13 @@
                 }
             }
 
-            function updateTemperatureDisplay(temp) {
-                const tempElement = document.getElementById("temperature");
-                tempElement.textContent = temp + "°C";
-                console.log(
-                    `Evaluating temp ${temp}°C against threshold ${currentThreshold}°C`
-                );
-
-                // Update color based on temperature compared to threshold
-                if (temp > currentThreshold + 2) {
-                    tempElement.style.color = "#f44336"; // danger
-                } else if (temp > currentThreshold) {
-                    tempElement.style.color = "#ff9800"; // warning
-                } else {
-                    tempElement.style.color = "#2196F3"; // normal
-                }
-                updateChart(temp);
-            }
-
             // Socket event handlers
             socket.on("temperature", function (data) {
                 const temp = data.data;
-                updateTemperatureDisplay(temp);
-            });
-
-            socket.on("config_update", function (data) {
-                if (data.data && "temp_threshold" in data.data) {
-                    const oldThreshold = currentThreshold;
-                    currentThreshold = parseFloat(data.data.temp_threshold);
-                    console.log(
-                        `Temperature threshold updated: ${oldThreshold}°C -> ${currentThreshold}°C`
-                    );
-
-                    // Update the input field to match MQTT config
-                    document.getElementById("tempThreshold").value =
-                        currentThreshold;
-
-                    // Re-evaluate current temperature
-                    const currentTemp = parseFloat(
-                        document.getElementById("temperature").textContent
-                    );
-                    if (!isNaN(currentTemp)) {
-                        updateTemperatureDisplay(currentTemp);
-                    }
-                }
+                const tempElement = document.getElementById("temperature");
+                tempElement.textContent = temp + "°C";
+                tempElement.style.color = temp > 28 ? "#f44336" : "#2196F3";
+                updateChart(temp);
             });
 
             socket.on("motion", function (data) {
