@@ -1,25 +1,33 @@
 from flask import Flask, render_template
 from flask_socketio import SocketIO
-import paho.mqtt.client as mqtt
-import json
-import threading
 from utils.encryption import EncryptionManager
+import json
+import paho.mqtt.client as mqtt
+import threading
+
+# Load configuration
+def load_config():
+    with open('config.json', 'r') as f:
+        return json.load(f)
+
+# Initialize config
+config_data = load_config()
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")  # Allow all origins
 
 # MQTT Settings
-primary_broker = "192.168.12.100"
-fallback_broker = "localhost"
-port = 1883
-temperature_topic = "public/server-room/temp"  # Public channel for temperature
-cooling_topic = "public/server-room/cooling"  # Subscribe to cooling commands
-config_topic = "public/server-room/config"  # Topic for configuration updates
+primary_broker = config_data['mqtt']['primary_broker']
+fallback_broker = config_data['mqtt']['fallback_broker']
+port = config_data['mqtt']['port']
+temperature_topic = config_data['mqtt']['topics']['temperature']
+cooling_topic = config_data['mqtt']['topics']['cooling']
+config_topic = config_data['mqtt']['topics']['config']
 
 # Global variables
 mqtt_client = None
 mqtt_thread = None
-temp_threshold = 28.0  # Default threshold, will be updated from User1
+temp_threshold = config_data['default_settings']['temp_threshold']  # Default threshold, will be updated from User1
 manual_override = False  # Manual override state
 manual_cooling = False  # Manual cooling state
 last_temperature = None  # Store the last received temperature
@@ -28,7 +36,7 @@ encryption_manager = EncryptionManager()
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc, properties=None):
     print(f"Connected with result code {rc}")
-    client.subscribe([(temperature_topic, 0), (config_topic, 0)])
+    client.subscribe([(temperature_topic, 0), (config_topic, 0), (cooling_topic, 0)])
     socketio.emit('mqtt_status', {'status': 'connected'})
 
 def on_message(client, userdata, msg):
@@ -57,6 +65,12 @@ def on_message(client, userdata, msg):
                 mqtt_client.publish(cooling_topic, encrypted_command)
                 print(f"Generated cooling command: {cooling_command} (current threshold: {temp_threshold}°C)")
                 socketio.emit('cooling_command', {'data': cooling_command})
+            
+        elif msg.topic == cooling_topic:
+            # Decrypt and handle cooling command
+            decrypted_message = encryption_manager.decrypt(msg.payload)
+            print(f"Received cooling command: {decrypted_message}")
+            socketio.emit('cooling_command', {'data': decrypted_message})
             
         elif msg.topic == config_topic:
             # Decrypt and handle configuration updates

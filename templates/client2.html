@@ -268,7 +268,25 @@
         <script>
             var socket = io();
             let lastTemp = 0;
-            var currentThreshold = 25.0; // Will be updated by threshold_update events
+            var currentThreshold = 28.0; // Default, will be updated from config.json
+            // Fetch initial threshold from config.json
+            fetch("config.json")
+                .then((response) => response.json())
+                .then((config) => {
+                    if (config && typeof config.threshold === "number") {
+                        currentThreshold = config.threshold;
+                        console.log(
+                            "Loaded threshold from config.json:",
+                            currentThreshold
+                        );
+                    }
+                })
+                .catch((err) => {
+                    console.warn(
+                        "Could not load config.json, using default threshold.",
+                        err
+                    );
+                });
             var manualOverride = false;
             var manualCooling = false;
 
@@ -278,7 +296,7 @@
                 const tempSpan = tempElement.querySelector("span");
 
                 // Update value with animation
-                tempSpan.textContent = temp + "°C";
+                tempSpan.textContent = temp.toFixed(2) + "°C";
                 tempElement.classList.remove("update");
                 void tempElement.offsetWidth; // Trigger reflow
                 tempElement.classList.add("update");

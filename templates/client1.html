@@ -101,8 +101,22 @@
                 font-size: 28px;
                 font-weight: bold;
                 color: var(--primary-color);
-                margin: 15px 0;
+                margin: 0;
+                flex: 1 1 auto;
+                display: flex;
+                align-items: center;
+                justify-content: center;
                 transition: color 0.3s ease;
+                text-align: center;
+                min-height: 80px; /* Ensures vertical space, adjust as needed */
+            }
+
+            .value.warning {
+                color: var(--warning-color);
+            }
+
+            .value.danger {
+                color: var(--danger-color);
             }
 
             .full-width {
@@ -356,6 +370,7 @@
         <script>
             var socket = io();
             let tempChart;
+            let currentThreshold = 28.0; // Default threshold, will be updated
 
             // Initialize chart with gradient
             window.onload = function () {
@@ -420,6 +435,7 @@
                             config.temp_threshold;
                         document.getElementById("alertEnabled").checked =
                             config.alert_enabled;
+                        currentThreshold = config.temp_threshold; // Update current threshold
                     });
 
                 fetch("/alarm-config")
@@ -462,7 +478,10 @@
                         "Content-Type": "application/json",
                     },
                     body: JSON.stringify(config),
-                }).then(() => showToast("Configuration saved successfully!"));
+                }).then(() => {
+                    showToast("Configuration saved successfully!");
+                    currentThreshold = config.temp_threshold; // Update current threshold
+                });
             }
 
             function saveAlarmConfig() {
@@ -515,16 +534,30 @@
 
             // Socket event handlers
             socket.on("temperature", function (data) {
-                const temp = data.data;
+                const temp = parseFloat(data.data);
                 const tempElement = document.getElementById("temperature");
-                tempElement.textContent = temp + "°C";
-                tempElement.style.color = temp > 28 ? "#f44336" : "#2196F3";
+                tempElement.textContent = temp.toFixed(2) + "°C";
+
+                // Remove existing classes
+                tempElement.classList.remove("warning", "danger");
+
+                // Add appropriate class based on threshold comparison
+                if (temp >= currentThreshold + 2) {
+                    tempElement.classList.add("danger");
+                } else if (temp >= currentThreshold) {
+                    tempElement.classList.add("warning");
+                } else {
+                    tempElement.classList.remove("warning", "danger");
+                }
+
                 updateChart(temp);
             });
-
             socket.on("motion", function (data) {
-                document.getElementById("motion").textContent = data.data;
-                addMotionLogEntry(data.data);
+                // Always show "Motion detected!" in the motion area
+                document.getElementById("motion").textContent =
+                    "Motion detected!";
+                // Show the full message (including alarm status) in the log
+                addMotionLogEntry(data.log_message || data.data);
                 setTimeout(() => {
                     document.getElementById("motion").textContent = "No motion";
                 }, 3000);

@@ -1,12 +1,20 @@
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
-import paho.mqtt.client as mqtt
+from datetime import datetime, time as dt_time
+from utils.encryption import EncryptionManager
 import json
+import paho.mqtt.client as mqtt
 import threading
 import time
 import random
-from datetime import datetime, time as dt_time
-from utils.encryption import EncryptionManager
+
+# Load configuration
+def load_config():
+    with open('config.json', 'r') as f:
+        return json.load(f)
+
+# Initialize config
+config_data = load_config()
 
 # Global variables
 app = Flask(__name__)
@@ -17,32 +25,29 @@ mqtt_thread = None
 encryption_manager = EncryptionManager()
 
 # Global configuration
-config = {
-    'temp_threshold': 28.0,  # Default temperature threshold
-    'alert_enabled': True,
-    'alarm_start': '18:00',
-    'alarm_end': '09:00',
-    'alarm_enabled': True
-}
+config = config_data['default_settings']
 
 # MQTT Settings
-primary_broker = "192.168.12.100"
-fallback_broker = "localhost"
-port = 1883
-motion_topic = "102779797/server-room/motion"  # Private channel for motion
-temperature_topic = "public/server-room/temp"  # Public channel for temperature
-cooling_topic = "public/server-room/cooling"  # Subscribe to cooling commands
-config_topic = "public/server-room/config"  # Topic for configuration updates
+primary_broker = config_data['mqtt']['primary_broker']
+fallback_broker = config_data['mqtt']['fallback_broker']
+port = config_data['mqtt']['port']
+motion_topic = config_data['mqtt']['topics']['motion']
+temperature_topic = config_data['mqtt']['topics']['temperature']
+cooling_topic = config_data['mqtt']['topics']['cooling']
+config_topic = config_data['mqtt']['topics']['config']
 
 # Time configuration
 def is_time_between(current_time, start_time_str, end_time_str):
+    # Convert string times to datetime.time objects
     start_time = dt_time.fromisoformat(start_time_str)
     end_time = dt_time.fromisoformat(end_time_str)
-    current = dt_time.fromisoformat(current_time.strftime('%H:%M:%S'))
+    current = current_time.time()  # Get time component of datetime
     
     if start_time <= end_time:
+        # Simple case: start time is before end time (e.g., 09:00 to 17:00)
         return start_time <= current <= end_time
-    else:  # Handles overnight periods
+    else:
+        # Overnight case: start time is after end time (e.g., 22:00 to 06:00)
         return current >= start_time or current <= end_time
 
 # MQTT callbacks
@@ -163,18 +168,30 @@ def generate_and_publish():
                 # Generate motion detection
                 motion = random.choice([True, False])
                 if motion:
+                    # Create the base motion message
                     motion_message = "Motion detected!"
-                    # Check if within alarm time frame
-                    if (config['alarm_enabled'] and 
-                        is_time_between(current_time, config['alarm_start'], config['alarm_end'])):
-                        motion_message += " [ALARM HOURS - Alert triggered!]"
-                        socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
+                    log_message = motion_message
+                    
+                    # Check if motion alert should be triggered
+                    if config['alarm_enabled']:
+                        # Check if current time is within alarm hours
+                        is_alarm_time = is_time_between(
+                            current_time,
+                            config['alarm_start'],
+                            config['alarm_end']
+                        )
+                        if is_alarm_time:
+                            log_message += " [ALARM HOURS - Alert triggered!]"
+                            print(f"Alarm triggered! Time: {current_time.strftime('%H:%M:%S')}, Start: {config['alarm_start']}, End: {config['alarm_end']}")
+                            socketio.emit('alert', {'data': "Motion detected during alarm hours!"})
+                    
+                    # Emit both messages - one for display, one for log
+                    socketio.emit('motion', {'data': motion_message, 'log_message': log_message})
                     
                     # Encrypt and publish motion message
-                    encrypted_motion = encryption_manager.encrypt(motion_message)
+                    encrypted_motion = encryption_manager.encrypt(log_message)
                     mqtt_client.publish(motion_topic, encrypted_motion)
-                    socketio.emit('motion', {'data': motion_message})
-                    print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {motion_message}")
+                    print(f"[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] Published motion: {log_message}")
             
         except Exception as e:
             print(f"Error in generate_and_publish: {e}")
