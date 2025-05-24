@@ -131,7 +131,7 @@ def cleanup():
 
 @app.route('/')
 def index():
-    return render_template('user2.html')
+    return render_template('client2.html')
 
 @socketio.on('manual_override')
 def handle_manual_override(data):

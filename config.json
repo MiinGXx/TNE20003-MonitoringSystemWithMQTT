@@ -1,0 +1,26 @@
+{
+    "mqtt": {
+        "primary_broker": "192.168.12.100",
+        "fallback_broker": "localhost",
+        "port": 1883,
+        "username": "102779797",
+        "password": "102779797",
+        "topics": {
+            "motion": "102779797/server-room/motion",
+            "temperature": "public/server-room/temp",
+            "cooling": "public/server-room/cooling",
+            "config": "public/server-room/config"
+        }
+    },
+    "default_settings": {
+        "temp_threshold": 28.0,
+        "alert_enabled": true,
+        "alarm_start": "18:00",
+        "alarm_end": "09:00",
+        "alarm_enabled": true
+    },
+    "ports": {
+        "user1": 5000,
+        "user2": 5001
+    }
+}

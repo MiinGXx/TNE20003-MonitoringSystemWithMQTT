@@ -186,7 +186,7 @@ def generate_and_publish():
 
 @app.route('/')
 def index():
-    return render_template('user1.html')
+    return render_template('client1.html')
 
 @app.route('/config', methods=['GET', 'POST'])
 def update_config():
