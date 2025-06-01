@@ -1,3 +1,58 @@
+<!--
+    ================================================================================
+    Client 2 Dashboard - Documentation
+    ================================================================================
+
+    Overview:
+    ---------
+    This HTML file implements a responsive dashboard interface for "User 2" in a monitoring system using MQTT and Socket.IO. It displays real-time temperature data, cooling system status, and allows manual override of automatic controls. The dashboard is designed for clarity, usability, and modern aesthetics.
+
+    Main Features:
+    --------------
+    - Real-time temperature monitoring with animated updates.
+    - Visual indication of cooling system status (ON/OFF).
+    - Manual override controls for switching between automatic and manual modes.
+    - Ability to manually toggle the cooling system when in manual mode.
+    - Live MQTT connection status indicator.
+    - Responsive layout for desktop and mobile devices.
+
+    Key Components:
+    ---------------
+    1. **Header**
+        - Displays the dashboard title and MQTT connection status badge.
+
+    2. **Main Content**
+        - Temperature Card: Shows the latest received temperature with color-coded warnings.
+        - Cooling Status Card: Indicates the current state of the cooling system.
+
+    3. **Sidebar**
+        - Manual Controls: Buttons for enabling manual override and toggling cooling.
+        - System Status: Textual display of current control mode (automatic/manual).
+
+    JavaScript Functionality:
+    ------------------------
+    - Establishes a Socket.IO connection for real-time updates.
+    - Fetches the initial temperature threshold from `config.json`.
+    - Listens for and handles the following socket events:
+        - `temperature`: Updates the temperature display and applies warning/danger styles based on threshold.
+        - `cooling_command`: Updates the cooling status display and icon.
+        - `threshold_update`: Updates the threshold and re-evaluates temperature warnings.
+        - `override_status`: Synchronizes manual override and cooling states across clients.
+        - `connect`/`disconnect`: Updates the MQTT connection status indicator.
+    - Provides functions for:
+        - Toggling manual override mode (`toggleOverride`).
+        - Toggling cooling system state in manual mode (`toggleCooling`).
+        - Animating value changes for better user feedback.
+
+    Styling:
+    --------
+    - Uses CSS custom properties for primary, success, danger, and warning colors.
+    - Applies modern card-based layout with box shadows and rounded corners.
+    - Responsive grid layout adapts to smaller screens.
+    - Animated transitions for value updates and button interactions.
+    - Color-coded feedback for temperature (normal, warning, danger) and cooling status.
+    - Styled buttons with hover and disabled states for clear affordance.
+-->
 <!DOCTYPE html>
 <html>
     <head>

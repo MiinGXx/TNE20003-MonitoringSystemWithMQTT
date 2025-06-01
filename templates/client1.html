@@ -1,3 +1,54 @@
+<!--
+    Client 1 Dashboard - Documentation
+
+    Overview:
+    ----------
+    This HTML file implements a real-time dashboard for monitoring and configuring a remote IoT system (e.g., temperature and motion sensors) via MQTT and WebSockets (Socket.IO).
+    It provides live updates, configuration forms, and historical data visualization for a single user/client.
+
+    Main Features:
+    --------------
+    - Displays current temperature, motion detection status, and cooling system state.
+    - Visualizes temperature history using Chart.js with a gradient line chart.
+    - Allows user to configure:
+        * Temperature threshold for alerts.
+        * Enable/disable alerts.
+        * Alarm time window and enable/disable alarm.
+    - Shows a log of motion detection events, with the ability to clear the log.
+    - Provides real-time feedback via toast notifications.
+    - Shows MQTT connection status with a colored indicator.
+    - Responsive design for desktop and mobile devices.
+
+    Key Components:
+    ---------------
+    1. **Header**: Shows dashboard title and MQTT connection status.
+    2. **Cards**:
+        - Temperature: Current value, color-coded based on threshold.
+        - Motion Detection: Shows "Motion detected!" when triggered.
+        - Cooling Status: Indicates ON/OFF state.
+        - Configuration: Form to set temperature threshold and alert toggle.
+        - Alarm Configuration: Form to set alarm time window and enable/disable.
+        - Temperature History: Chart of recent temperature readings.
+        - Motion Detection Log: List of recent motion events, with clear button.
+    3. **Toast**: Popup notifications for user actions and alerts.
+
+    JavaScript Functionality:
+    ------------------------
+    - Uses Socket.IO for real-time updates:
+        * Receives temperature, motion, cooling command, and alert events.
+        * Updates UI elements and chart accordingly.
+    - Fetches and saves configuration via REST endpoints (`/config`, `/alarm-config`).
+    - Handles UI interactions (form submissions, log clearing).
+    - Manages chart data and appearance.
+    - Provides responsive and interactive user experience.
+
+    Styling:
+    --------
+    - Uses CSS variables for theme colors.
+    - Modern card-based layout with shadows and rounded corners.
+    - Custom toggle switches for boolean settings.
+    - Responsive grid adapts to screen size.
+-->
 <!DOCTYPE html>
 <html>
     <head>

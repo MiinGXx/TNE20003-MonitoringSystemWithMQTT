@@ -39,6 +39,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
     client.subscribe([(temperature_topic, 0), (config_topic, 0), (cooling_topic, 0)])
     socketio.emit('mqtt_status', {'status': 'connected'})
 
+# Callback for incoming messages
 def on_message(client, userdata, msg):
     global temp_threshold, last_temperature
     try:
@@ -83,6 +84,7 @@ def on_message(client, userdata, msg):
                 socketio.emit('threshold_update', {'threshold': temp_threshold})
                 print(f"Emitted threshold update to connected clients")
 
+    # Handle errors in message processing
     except ValueError as e:
         print(f"Error processing message: {e}")
     except json.JSONDecodeError as e:
@@ -118,6 +120,7 @@ def connect_mqtt():
             print(f"Failed to connect to fallback broker: {e}")
             raise
 
+# Initialize MQTT client and start loop in a separate thread
 def init_mqtt():
     global mqtt_client, mqtt_thread
     

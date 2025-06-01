@@ -139,6 +139,7 @@ def init_mqtt():
         print(f"Error initializing MQTT: {e}")
         mqtt_client = None
 
+# Cleanup function to stop MQTT client and threads
 def cleanup():
     global mqtt_client, mqtt_thread, publish_thread
     if mqtt_client:
@@ -149,8 +150,22 @@ def cleanup():
     # The threads are daemon threads, so they will be terminated automatically
 
 def generate_and_publish():
+    """
+    Continuously generates simulated temperature and motion data, encrypts the messages, and publishes them to MQTT topics.
+    Also emits real-time updates and alerts to connected SocketIO clients.
+    - Generates a random temperature value between 20°C and 30°C every 5 seconds.
+    - Publishes the encrypted temperature to the configured MQTT topic.
+    - Emits the temperature value to SocketIO clients.
+    - Randomly simulates motion detection; if motion is detected:
+        - Emits a motion message and log to SocketIO clients.
+        - If the alarm is enabled and the current time is within the configured alarm hours, triggers an alert and emits it.
+        - Publishes the encrypted motion message to the MQTT topic.
+    - Handles and logs exceptions, emitting an error status to SocketIO clients if any occur.
+    - Runs indefinitely, sleeping 5 seconds between each iteration.
+    """
     while True:
         try:
+            # Get the current time
             current_time = datetime.now()
             
             # Generate temperature data
